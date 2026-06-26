@@ -504,20 +504,34 @@ function lookupCard(p){const c=card("Find on Google",`<circle cx="11" cy="11" r=
   return c;}
 function renderFinder(){const body=$("#finderBody");if(!body)return;body.innerHTML="";
   if(!googleReady()){body.appendChild(el("div",{class:"hint"},"Google search isn't configured yet."));return;}
-  const row=el("div",{class:"search-row"});const zip=el("input",{type:"text",id:"fz",placeholder:"ZIP code"});
-  const cat=sel("fcat",["Day spa","Med spa","Massage studio","Hair salon","Nail salon","Spas and salons"],"Day spa");row.append(zip,cat);body.appendChild(row);
-  const row2=el("div",{class:"search-row",style:"margin-top:8px;"});const minr=sel("fmin",["Any rating","3.0+","3.5+","4.0+","4.5+"],"3.5+");
-  const btn=el("button",{class:"btn btn-primary",onclick:runFinder},"Search");row2.append(minr,btn);body.appendChild(row2);
-  const status=el("div",{id:"f-status",class:"hint",style:"margin-top:10px;"});body.appendChild(status);
+  body.appendChild(field("ZIP code (or use your location below)",el("input",{type:"text",id:"fz",placeholder:"e.g. 44319",inputmode:"numeric"})));
+  const g=el("div",{class:"grid-2"});
+  g.appendChild(field("Type",sel("fcat",["Day spa","Med spa","Massage studio","Hair salon","Nail salon","Spas and salons"],"Day spa")));
+  g.appendChild(field("Min rating",sel("fmin",["Any rating","3.0+","3.5+","4.0+","4.5+"],"3.5+")));
+  body.appendChild(g);
+  const btnRow=el("div",{class:"search-row"});
+  btnRow.appendChild(el("button",{class:"btn btn-primary",style:"flex:1;justify-content:center;",onclick:()=>{const z=($("#fz").value||"").trim();if(!z){toast("Enter a ZIP, or use your location");return;}runSearch(z,null);}},"Search ZIP"));
+  btnRow.appendChild(el("button",{class:"btn btn-sage",style:"flex:1;justify-content:center;",onclick:runGeo,html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:16px;height:16px;"><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2.3"/></svg><span>Use my location</span>`}));
+  body.appendChild(btnRow);
+  const status=el("div",{id:"f-status",class:"hint",style:"margin-top:12px;"});body.appendChild(status);
   const results=el("div",{id:"f-results",class:"rep-list",style:"margin-top:10px;"});body.appendChild(results);
-  zip.addEventListener("keydown",e=>{if(e.key==="Enter")runFinder();});
-  function runFinder(){const z=zip.value.trim();if(!z){toast("Enter a ZIP");return;}const catv=$("#fcat").value;
-    const minMap={"Any rating":0,"3.0+":3,"3.5+":3.5,"4.0+":4,"4.5+":4.5};const minR=minMap[$("#fmin").value]||0;
+  $("#fz").addEventListener("keydown",e=>{if(e.key==="Enter"){const z=($("#fz").value||"").trim();if(z)runSearch(z,null);}});
+  function minR(){const m={"Any rating":0,"3.0+":3,"3.5+":3.5,"4.0+":4,"4.5+":4.5};return m[$("#fmin").value]||0;}
+  function runGeo(){const status=$("#f-status");
+    if(!navigator.geolocation){toast("Location isn't available on this device");return;}
+    status.textContent="Getting your location… (allow the location prompt)";
+    navigator.geolocation.getCurrentPosition(
+      pos=>runSearch(null,{lat:pos.coords.latitude,lng:pos.coords.longitude,radius:24000}),
+      err=>{status.textContent="Couldn't get your location ("+((err&&err.message)||"permission denied")+"). Try the ZIP search instead.";},
+      {enableHighAccuracy:false,timeout:10000,maximumAge:300000});}
+  function runSearch(zip,bias){const catv=$("#fcat").value;const status=$("#f-status"),results=$("#f-results");
+    const q=zip?(catv+" near "+zip):catv;
     status.textContent="Searching Google…";results.innerHTML="";
-    placesTextSearch(catv+" near "+z).then(places=>{let list=places.map(placeToFields).filter(f=>!f.rating||parseFloat(f.rating)>=minR);
-      if(!list.length){status.textContent="No spas found for that ZIP and rating.";return;}list=list.slice(0,8);status.textContent=list.length+" found:";
+    placesTextSearch(q,bias).then(places=>{let list=places.map(placeToFields).filter(f=>!f.rating||parseFloat(f.rating)>=minR());
+      if(!list.length){status.textContent="No spas found for that "+(zip?"ZIP":"area")+" at "+($("#fmin").value)+". Try a wider rating.";return;}
+      list=list.slice(0,8);status.textContent=list.length+" found"+(bias?" near you":"")+":";
       list.forEach(f=>{const exists=loadBiz().some(x=>(x.name||"").toLowerCase()===(f.name||"").toLowerCase());
-        results.appendChild(placeResultRow(f,exists?"Add again":"Add",e=>{addPlaceAsProspect(f);e.target.textContent="Added";e.target.disabled=true;}));});
+        results.appendChild(placeResultRow(f,exists?"Add again":"Add",e=>{addPlaceAsProspect(f);e.target.textContent="Added \u2713";e.target.disabled=true;}));});
     }).catch(err=>{status.textContent=err.message||"Search failed.";});}
 }
 function addPlaceAsProspect(f){const b=blankBiz();b.name=f.name;b.address=f.address;b.phone=f.phone;b.website=f.website;b.rating=f.rating;b.reviews=f.reviews;b.hours=f.hours;b.category=f.category;b.status="New";
