@@ -393,7 +393,7 @@ async function placesTextSearch(query,bias){
   if(!res.ok){let msg="";try{const j=await res.json();msg=(j.error&&j.error.message)||"";}catch(e){}throw new Error((res.status===403?"Access denied (key restriction or API not enabled). ":"Google error "+res.status+". ")+msg);}
   const data=await res.json();return data.places||[];}
 function placeToFields(p){return{
-  name:(p.displayName&&p.displayName.text)||"",address:p.formattedAddress||"",
+  id:p.id||"",name:(p.displayName&&p.displayName.text)||"",address:p.formattedAddress||"",
   phone:p.nationalPhoneNumber||p.internationalPhoneNumber||"",website:p.websiteUri||"",
   rating:p.rating!=null?String(p.rating):"",reviews:p.userRatingCount!=null?String(p.userRatingCount):"",
   category:(p.primaryTypeDisplayName&&p.primaryTypeDisplayName.text)||"",
@@ -576,10 +576,15 @@ function lookupCard(p){const c=card("Find on Google",`<circle cx="11" cy="11" r=
 function renderFinder(){const body=$("#finderBody");if(!body)return;body.innerHTML="";
   if(!googleReady()){body.appendChild(el("div",{class:"hint"},"Google search isn't configured yet."));return;}
   body.appendChild(field("ZIP code (or use your location below)",el("input",{type:"text",id:"fz",placeholder:"e.g. 44319",inputmode:"numeric"})));
-  const g=el("div",{class:"grid-2"});
-  g.appendChild(field("Type",sel("fcat",["Day spa","Med spa","Massage studio","Hair salon","Nail salon","Spas and salons"],"Day spa")));
-  g.appendChild(field("Min rating",sel("fmin",["Any rating","3.0+","3.5+","4.0+","4.5+"],"3.5+")));
-  body.appendChild(g);
+  const CATS=["Day spa","Med spa","Massage studio","Hair salon","Nail salon","Esthetics studio","Barbershop"];
+  let selected=new Set(CATS);
+  body.appendChild(el("div",{class:"field-label"},"Types (tap All, or pick the ones you want)"));
+  const chips=el("div",{class:"chips",style:"flex-wrap:wrap;margin-bottom:14px;"});body.appendChild(chips);
+  function drawChips(){chips.innerHTML="";const allOn=selected.size===CATS.length;
+    chips.appendChild(el("button",{class:"chip-f"+(allOn?" active":""),onclick:()=>{selected=allOn?new Set():new Set(CATS);drawChips();}},"All"));
+    CATS.forEach(c=>{const on=selected.has(c);chips.appendChild(el("button",{class:"chip-f"+(on?" active":""),onclick:()=>{on?selected.delete(c):selected.add(c);drawChips();}},c));});}
+  drawChips();
+  body.appendChild(field("Min rating",sel("fmin",["Any rating","3.0+","3.5+","4.0+","4.5+"],"3.5+")));
   const btnRow=el("div",{class:"search-row"});
   btnRow.appendChild(el("button",{class:"btn btn-primary",style:"flex:1;justify-content:center;",onclick:()=>{const z=($("#fz").value||"").trim();if(!z){toast("Enter a ZIP, or use your location");return;}runSearch(z,null);}},"Search ZIP"));
   btnRow.appendChild(el("button",{class:"btn btn-sage",style:"flex:1;justify-content:center;",onclick:runGeo,html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:16px;height:16px;"><path d="M12 21s-6-5.3-6-10a6 6 0 0 1 12 0c0 4.7-6 10-6 10z"/><circle cx="12" cy="11" r="2.3"/></svg><span>Use my location</span>`}));
@@ -588,22 +593,23 @@ function renderFinder(){const body=$("#finderBody");if(!body)return;body.innerHT
   const results=el("div",{id:"f-results",class:"rep-list",style:"margin-top:10px;"});body.appendChild(results);
   $("#fz").addEventListener("keydown",e=>{if(e.key==="Enter"){const z=($("#fz").value||"").trim();if(z)runSearch(z,null);}});
   function minR(){const m={"Any rating":0,"3.0+":3,"3.5+":3.5,"4.0+":4,"4.5+":4.5};return m[$("#fmin").value]||0;}
-  function runGeo(){const status=$("#f-status");
-    if(!navigator.geolocation){toast("Location isn't available on this device");return;}
-    status.textContent="Getting your location… (allow the location prompt)";
-    navigator.geolocation.getCurrentPosition(
-      pos=>runSearch(null,{lat:pos.coords.latitude,lng:pos.coords.longitude,radius:24000}),
-      err=>{status.textContent="Couldn't get your location ("+((err&&err.message)||"permission denied")+"). Try the ZIP search instead.";},
+  function runGeo(){const st=$("#f-status");if(!navigator.geolocation){toast("Location isn't available on this device");return;}
+    st.textContent="Getting your location… (allow the location prompt)";
+    navigator.geolocation.getCurrentPosition(pos=>runSearch(null,{lat:pos.coords.latitude,lng:pos.coords.longitude,radius:24000}),
+      err=>{st.textContent="Couldn't get your location ("+((err&&err.message)||"permission denied")+"). Try the ZIP search instead.";},
       {enableHighAccuracy:false,timeout:10000,maximumAge:300000});}
-  function runSearch(zip,bias){const catv=$("#fcat").value;const status=$("#f-status"),results=$("#f-results");
-    const q=zip?(catv+" near "+zip):catv;
-    status.textContent="Searching Google…";results.innerHTML="";
-    placesTextSearch(q,bias).then(places=>{let list=places.map(placeToFields).filter(f=>!f.rating||parseFloat(f.rating)>=minR());
-      if(!list.length){status.textContent="No spas found for that "+(zip?"ZIP":"area")+" at "+($("#fmin").value)+". Try a wider rating.";return;}
-      list=list.slice(0,8);status.textContent=list.length+" found"+(bias?" near you":"")+":";
+  function runSearch(zip,bias){const cats=[...selected];const status=$("#f-status"),results=$("#f-results");
+    if(!cats.length){toast("Pick at least one type, or tap All");return;}
+    status.textContent="Searching Google across "+cats.length+" type"+(cats.length>1?"s":"")+"…";results.innerHTML="";
+    Promise.all(cats.map(c=>placesTextSearch(zip?(c+" near "+zip):c,bias).catch(()=>[]))).then(groups=>{
+      const byId={};groups.forEach(g=>g.forEach(pl=>{const f=placeToFields(pl);const key=f.id||((f.name||"")+f.address);if(!byId[key])byId[key]=f;}));
+      let list=Object.values(byId).filter(f=>!f.rating||parseFloat(f.rating)>=minR());
+      list.sort((a,b)=>(parseFloat(b.rating||0)-parseFloat(a.rating||0))||((parseInt(b.reviews||0,10))-(parseInt(a.reviews||0,10))));
+      if(!list.length){status.textContent="No places found for that "+(zip?"ZIP":"area")+" at "+($("#fmin").value)+". Try a wider rating or more types.";return;}
+      list=list.slice(0,10);status.textContent="Top "+list.length+(bias?" near you":"")+":";
       list.forEach(f=>{const exists=loadBiz().some(x=>(x.name||"").toLowerCase()===(f.name||"").toLowerCase());
         results.appendChild(placeResultRow(f,exists?"Add again":"Add",e=>{addPlaceAsProspect(f);e.target.textContent="Added \u2713";e.target.disabled=true;}));});
-    }).catch(err=>{status.textContent=err.message||"Search failed.";});}
+    }).catch(err=>{status.textContent=(err&&err.message)||"Search failed.";});}
 }
 function addPlaceAsProspect(f){const b=blankBiz();b.name=f.name;b.address=f.address;b.phone=f.phone;b.website=f.website;b.rating=f.rating;b.reviews=f.reviews;b.hours=f.hours;b.category=f.category;b.status="New";
   const arr=loadBiz();arr.unshift(b);saveBiz(arr);if(f.category)rememberValue("categories",f.category);renderBusinesses();toast("Added "+(f.name||"prospect"));}
