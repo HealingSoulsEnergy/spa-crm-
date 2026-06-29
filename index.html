@@ -226,21 +226,21 @@
   <div class="topbar-inner">
     <div class="brand">
       <span class="mark" id="brandMark"></span>
-      <div><div class="brand-name">Spa &amp; Salon CRM</div><div class="brand-sub">Training · Reports · Prospects</div></div>
+      <div><div class="brand-name">Spa &amp; Salon CRM</div><div class="brand-sub">Prospects · Training · Reports</div></div>
     </div>
     <div class="save-state"><span class="dot" id="saveDot"></span><span id="saveText">Saved on this device</span></div>
   </div>
   <nav class="tabs" id="tabs">
-    <button class="tab active" data-view="agendas">Agendas</button>
+    <button class="tab active" data-view="prospects">Prospects</button>
+    <button class="tab" data-view="agendas">Agendas</button>
     <button class="tab" data-view="reports">Reports</button>
-    <button class="tab" data-view="prospects">Prospects</button>
     <button class="tab" data-view="followups">Follow-ups</button>
     <button class="tab" data-view="lists">Manage Lists</button>
   </nav>
 </div>
 
 <main>
-  <section class="view active" id="view-agendas">
+  <section class="view" id="view-agendas">
     <h2 class="view-title">Training Agendas</h2>
     <div class="toolbar">
       <div class="search-row">
@@ -262,12 +262,13 @@
     <div id="reportList"></div>
   </section>
 
-  <section class="view" id="view-prospects">
+  <section class="view active" id="view-prospects">
     <h2 class="view-title">Prospects</h2>
     <div id="syncArea"></div>
     <div class="backup-bar">
       <button class="mini-btn" id="btnExport">Export backup</button>
       <button class="mini-btn" id="btnImport">Import backup</button>
+      <button class="mini-btn" id="btnSheet">Export spreadsheet</button>
       <input type="file" id="importFile" accept="application/json,.json" style="display:none;">
       <span class="backup-hint">Backs up agendas, reports, spas, and lists together.</span>
     </div>
@@ -1026,6 +1027,36 @@ function importBackup(file){const r=new FileReader();r.onload=function(){let dat
   renderBusinesses();toast("Imported "+b.added+" businesses, "+(a.added+rp.added)+" docs");};r.readAsText(file);}
 $("#btnExport").addEventListener("click",exportBackup);$("#btnImport").addEventListener("click",()=>$("#importFile").click());
 $("#importFile").addEventListener("change",e=>{if(e.target.files&&e.target.files[0])importBackup(e.target.files[0]);e.target.value="";});
+
+/* ===== prospect spreadsheet export ===== */
+function loadScriptOnce(src){return new Promise((res,rej)=>{if(window.XLSX){res();return;}const s=document.createElement("script");s.src=src;s.onload=()=>res();s.onerror=()=>rej(new Error("library load failed"));document.head.appendChild(s);});}
+function prospectRows(){return loadBiz().slice().sort((a,b)=>{const fa=a.followUpDate||"9999",fb=b.followUpDate||"9999";return fa!==fb?(fa<fb?-1:1):(a.name||"").localeCompare(b.name||"");}).map(p=>{
+  const visits=(p.visits||[]).filter(v=>v.date).sort((x,y)=>(y.date||"").localeCompare(x.date||""));
+  const lastVisit=visits.length?visits[0].date:"";
+  const gifts=Array.from(new Set((p.visits||[]).filter(v=>v.gift&&v.giftItem).map(v=>(v.giftItem||"").trim()).filter(Boolean))).join(", ");
+  return[p.name||"",p.website||"",p.contact||p.owner||"",p.phone||"",lastVisit,p.followUpDate||"",gifts,p.status||""];});}
+const SHEET_HEADER=["Business","Website","Contact person","Phone","Date of visit","Follow-up date","Gift / sample dropped","Status"];
+async function exportProspectSheet(){
+  const rows=prospectRows();if(!rows.length){toast("No prospects to export yet");return;}
+  const aoa=[SHEET_HEADER].concat(rows);
+  try{
+    await loadScriptOnce("https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js");
+    const ws=XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"]=[{wch:28},{wch:30},{wch:20},{wch:16},{wch:14},{wch:14},{wch:26},{wch:14}];
+    ws["!autofilter"]={ref:"A1:H"+(rows.length+1)};
+    const hdr={font:{bold:true,color:{rgb:"1E2733"}},fill:{fgColor:{rgb:"E2E7EE"}},alignment:{horizontal:"left",vertical:"center"}};
+    SHEET_HEADER.forEach((_,c)=>{const ref=XLSX.utils.encode_cell({r:0,c});if(ws[ref])ws[ref].s=hdr;});
+    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Prospects");
+    XLSX.writeFile(wb,"Prospects "+todayISO()+".xlsx");
+    toast("Spreadsheet downloaded");
+  }catch(e){
+    const esc=v=>{v=(v==null?"":String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const csv=aoa.map(r=>r.map(esc).join(",")).join("\r\n");
+    downloadFile("Prospects "+todayISO()+".csv",csv,"text/csv");
+    toast("Spreadsheet downloaded (CSV)");
+  }
+}
+$("#btnSheet").addEventListener("click",exportProspectSheet);
 
 /* ===== keyboard-aware action bar + init ===== */
 ["view-business","view-agenda","view-report"].forEach(vid=>{const fv=document.getElementById(vid);const bar=()=>fv.querySelector(".action-bar");const isField=n=>n&&n.matches&&n.matches("input,textarea,select");
