@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#26409E">
 <title>Spa &amp; Salon CRM</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
     --bg:#F4F6F9;--surface:#FFFFFF;--surface-2:#F8FAFC;
@@ -263,6 +264,7 @@
 
   <section class="view" id="view-prospects">
     <h2 class="view-title">Prospects</h2>
+    <div id="syncArea"></div>
     <div class="backup-bar">
       <button class="mini-btn" id="btnExport">Export backup</button>
       <button class="mini-btn" id="btnImport">Import backup</button>
@@ -346,16 +348,16 @@ const STATUS_CLASS={"New":"new","Visited":"visited","Sample dropped":"sample","F
 
 function loadLists(){let raw=Store.get(LKEY);if(!raw){Store.set(LKEY,JSON.stringify(DEFAULT_LISTS));return JSON.parse(JSON.stringify(DEFAULT_LISTS));}
   try{let l=JSON.parse(raw);for(const k in DEFAULT_LISTS){if(!Array.isArray(l[k]))l[k]=DEFAULT_LISTS[k].slice();}return l;}catch(e){return JSON.parse(JSON.stringify(DEFAULT_LISTS));}}
-function saveLists(){Store.set(LKEY,JSON.stringify(LISTS));flashSaved();}
+function saveLists(){Store.set(LKEY,JSON.stringify(LISTS));flashSaved();scheduleSync();}
 function loadBiz(){try{return JSON.parse(Store.get(BKEY)||"[]");}catch(e){return[];}}
-function saveBiz(a){Store.set(BKEY,JSON.stringify(a));flashSaved();}
+function saveBiz(a){Store.set(BKEY,JSON.stringify(a));flashSaved();scheduleSync();}
 function loadAgendas(){try{return JSON.parse(Store.get(AKEY)||"[]");}catch(e){return[];}}
-function saveAgendas(a){Store.set(AKEY,JSON.stringify(a));flashSaved();}
+function saveAgendas(a){Store.set(AKEY,JSON.stringify(a));flashSaved();scheduleSync();}
 function loadReports(){try{return JSON.parse(Store.get(RKEY)||"[]");}catch(e){return[];}}
-function saveReports(a){Store.set(RKEY,JSON.stringify(a));flashSaved();}
+function saveReports(a){Store.set(RKEY,JSON.stringify(a));flashSaved();scheduleSync();}
 let LISTS=loadLists();
 function rememberValue(key,val){val=(val||"").trim();if(!val)return;if(!LISTS[key])LISTS[key]=[];
-  if(!LISTS[key].some(v=>v.toLowerCase()===val.toLowerCase())){LISTS[key].push(val);Store.set(LKEY,JSON.stringify(LISTS));}}
+  if(!LISTS[key].some(v=>v.toLowerCase()===val.toLowerCase())){LISTS[key].push(val);Store.set(LKEY,JSON.stringify(LISTS));scheduleSync();}}
 
 /* ===== helpers ===== */
 const $=(s,e=document)=>e.querySelector(s);
@@ -398,6 +400,75 @@ function placeToFields(p){return{
   hours:(p.regularOpeningHours&&p.regularOpeningHours.weekdayDescriptions)?p.regularOpeningHours.weekdayDescriptions.join("\n"):"",
   lat:p.location&&p.location.latitude,lng:p.location&&p.location.longitude,mapsUri:p.googleMapsUri||""};}
 function mi2m(mi){return Math.round(mi*1609.34);}
+
+/* ===== Google Drive sync ===== */
+const DRIVE_CLIENT_ID="131531347628-d88brnqv2tk51f7q5puiq8o0eh669f9i.apps.googleusercontent.com";
+const DRIVE_SCOPE="https://www.googleapis.com/auth/drive.file";
+const SYNC_FILENAME="spa-crm-data.json";
+let driveToken=null,driveFileId=Store.get("sc_drive_fileid")||null,tokenClient=null,tokenWaiters=[];
+let syncEnabled=Store.get("sc_sync_on")==="1",lastSyncAt=Store.get("sc_sync_at")||"",syncBusy=false,syncTimer=null;
+function gisAvailable(){return window.google&&google.accounts&&google.accounts.oauth2;}
+function loadGIS(cb){let n=0;const t=setInterval(()=>{n++;if(gisAvailable()){clearInterval(t);cb();}else if(n>50){clearInterval(t);cb(new Error("Google sign-in didn't load"));}},150);}
+function fmtClock(iso){if(!iso)return"";try{return new Date(iso).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});}catch(e){return"";}}
+function setSyncStatus(msg){const n=$("#sync-status");if(n)n.textContent=msg;}
+function markSynced(){const dot=$("#saveDot"),txt=$("#saveText");if(txt)txt.textContent="Synced to Drive";if(dot)dot.classList.remove("warn");}
+function ensureTokenClient(){if(tokenClient)return true;if(!gisAvailable())return false;
+  tokenClient=google.accounts.oauth2.initTokenClient({client_id:DRIVE_CLIENT_ID,scope:DRIVE_SCOPE,
+    callback:r=>{if(r&&r.access_token){driveToken=r.access_token;tokenWaiters.forEach(w=>w.resolve(driveToken));}else{tokenWaiters.forEach(w=>w.reject(new Error("no token")));}tokenWaiters=[];},
+    error_callback:err=>{tokenWaiters.forEach(w=>w.reject(err||new Error("sign-in canceled")));tokenWaiters=[];setSyncStatus("Sign-in canceled or blocked.");}});
+  return true;}
+function requestToken(interactive){return new Promise((resolve,reject)=>{if(!ensureTokenClient()){reject(new Error("Google sign-in not loaded yet"));return;}
+  tokenWaiters.push({resolve,reject});try{tokenClient.requestAccessToken({prompt:interactive?"consent":""});}catch(e){reject(e);}});}
+async function driveApi(url,opts,retry){opts=opts||{};opts.headers=Object.assign({},opts.headers||{},{Authorization:"Bearer "+driveToken});
+  let res=await fetch(url,opts);
+  if(res.status===401&&!retry){driveToken=null;try{await requestToken(false);}catch(e){throw new Error("Please sign in again");}return driveApi(url,opts,true);}
+  return res;}
+async function driveFindFile(){const q=encodeURIComponent("name='"+SYNC_FILENAME+"' and trashed=false");
+  const res=await driveApi("https://www.googleapis.com/drive/v3/files?spaces=drive&fields=files(id,modifiedTime)&q="+q);
+  if(!res.ok)throw new Error("Drive list failed ("+res.status+")");const j=await res.json();
+  if(j.files&&j.files.length){driveFileId=j.files[0].id;Store.set("sc_drive_fileid",driveFileId);return driveFileId;}return null;}
+async function driveRead(){if(!driveFileId)return null;const res=await driveApi("https://www.googleapis.com/drive/v3/files/"+driveFileId+"?alt=media");
+  if(res.status===404){driveFileId=null;Store.set("sc_drive_fileid","");return null;}if(!res.ok)throw new Error("Drive read failed ("+res.status+")");return res.json();}
+function currentData(){return{app:"spa-crm",version:1,syncedAt:new Date().toISOString(),businesses:loadBiz(),agendas:loadAgendas(),reports:loadReports(),lists:LISTS};}
+async function driveWrite(){const bodyStr=JSON.stringify(currentData());
+  if(!driveFileId){const b="scb"+Date.now();const meta={name:SYNC_FILENAME,mimeType:"application/json"};
+    const mp="--"+b+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+b+"\r\nContent-Type: application/json\r\n\r\n"+bodyStr+"\r\n--"+b+"--";
+    const res=await driveApi("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+b},body:mp});
+    if(!res.ok)throw new Error("Drive create failed ("+res.status+")");const j=await res.json();driveFileId=j.id;Store.set("sc_drive_fileid",driveFileId);
+  }else{const res=await driveApi("https://www.googleapis.com/upload/drive/v3/files/"+driveFileId+"?uploadType=media",{method:"PATCH",headers:{"Content-Type":"application/json"},body:bodyStr});
+    if(res.status===404){driveFileId=null;Store.set("sc_drive_fileid","");return driveWrite();}if(!res.ok)throw new Error("Drive write failed ("+res.status+")");}
+  lastSyncAt=new Date().toISOString();Store.set("sc_sync_at",lastSyncAt);}
+function applyRemote(data){if(!data)return;
+  Store.set(BKEY,JSON.stringify(mergeById(loadBiz(),data.businesses||[]).arr));
+  Store.set(AKEY,JSON.stringify(mergeById(loadAgendas(),data.agendas||[]).arr));
+  Store.set(RKEY,JSON.stringify(mergeById(loadReports(),data.reports||[]).arr));
+  const il=data.lists||{};for(const k in il){if(!Array.isArray(il[k]))continue;if(!LISTS[k])LISTS[k]=[];il[k].forEach(v=>{if(v&&!LISTS[k].some(y=>y.toLowerCase()===String(v).toLowerCase()))LISTS[k].push(v);});}Store.set(LKEY,JSON.stringify(LISTS));}
+function refreshMainLists(){try{renderAgendasList();renderReportsList();renderBusinesses();renderFinder();}catch(e){}
+  const a=document.querySelector(".tab.active");if(a){const v=a.dataset.view;if(v==="followups")renderFollowups();else if(v==="lists")renderLists();}}
+async function fullSync(){if(syncBusy)return;syncBusy=true;setSyncStatus("Syncing with Drive…");
+  try{await driveFindFile();const remote=await driveRead();applyRemote(remote);await driveWrite();refreshMainLists();renderSyncCard();setSyncStatus("Synced "+fmtClock(lastSyncAt));markSynced();}
+  catch(e){setSyncStatus((e&&e.message)||"Sync failed.");}syncBusy=false;}
+function scheduleSync(){if(!syncEnabled||!driveToken)return;clearTimeout(syncTimer);syncTimer=setTimeout(pushSync,2500);}
+async function pushSync(){if(!syncEnabled||!driveToken||syncBusy)return;syncBusy=true;setSyncStatus("Saving to Drive…");
+  try{await driveWrite();setSyncStatus("Synced "+fmtClock(lastSyncAt));markSynced();}catch(e){setSyncStatus("Drive save will retry.");}syncBusy=false;}
+async function driveSignIn(){try{setSyncStatus("Opening Google sign-in…");await requestToken(true);syncEnabled=true;Store.set("sc_sync_on","1");renderSyncCard();await fullSync();}catch(e){setSyncStatus((e&&e.message)||"Sign-in didn't complete.");}}
+function driveSignOut(){if(driveToken&&gisAvailable()){try{google.accounts.oauth2.revoke(driveToken,()=>{});}catch(e){}}
+  driveToken=null;syncEnabled=false;Store.set("sc_sync_on","0");renderSyncCard();const txt=$("#saveText");if(txt)txt.textContent=Store.persistent?"Saved on this device":"Open in a browser to save";}
+function startupSync(){if(!syncEnabled)return;loadGIS(err=>{if(err){renderSyncCard();setSyncStatus("Tap Sync to reconnect.");return;}requestToken(false).then(()=>fullSync()).catch(()=>{renderSyncCard();setSyncStatus("Tap Sync now to reconnect.");});});}
+function renderSyncCard(){const area=$("#syncArea");if(!area)return;area.innerHTML="";
+  const c=card("Cloud sync",`<path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.3A3.5 3.5 0 0 1 18 18z"/>`);
+  if(!syncEnabled||!driveToken){
+    c.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Sign in with Google to keep this app in sync across phone, tablet, and computer. Your data is saved as one file in your own Google Drive, and whatever is already on this device uploads on first sign-in."));
+    c.appendChild(el("button",{class:"btn btn-primary",onclick:driveSignIn},"Sign in with Google"));
+    c.appendChild(el("div",{id:"sync-status",class:"hint",style:"margin-top:10px;"}));
+  }else{
+    c.appendChild(el("div",{id:"sync-status",class:"hint",style:"margin:0 0 12px;display:block;color:var(--st-won);"},lastSyncAt?("Synced "+fmtClock(lastSyncAt)):"Connected to your Drive"));
+    const row=el("div",{class:"search-row"});
+    row.appendChild(el("button",{class:"btn btn-sage",style:"flex:1;justify-content:center;",onclick:fullSync},"Sync now"));
+    row.appendChild(el("button",{class:"btn btn-ghost",style:"flex:1;justify-content:center;",onclick:driveSignOut},"Sign out"));
+    c.appendChild(row);
+  }
+  area.appendChild(c);}
 
 /* ===== navigation ===== */
 let curBiz=null,curAgenda=null,curReport=null,bizTab="details",previewRef=null,previewReturn="agendas",docReturn="agendas";
@@ -959,6 +1030,8 @@ if(!Store.persistent)flashSaved();
 renderAgendasList();
 renderBusinesses();
 renderFinder();
+renderSyncCard();
+startupSync();
 </script>
 </body>
 </html>
