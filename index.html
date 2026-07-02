@@ -473,8 +473,13 @@ function renderSyncCard(){const area=$("#syncArea");if(!area)return;area.innerHT
 
 /* ===== navigation ===== */
 let curBiz=null,curAgenda=null,curReport=null,bizTab="details",previewRef=null,previewReturn="agendas",docReturn="agendas";
+let _lastView="prospects";
 function showView(name){$$(".view").forEach(v=>v.classList.remove("active"));const v=document.getElementById("view-"+name);if(v)v.classList.add("active");
-  $$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===name));window.scrollTo(0,0);}
+  $$(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===name));
+  const deep=name==="business"||name==="agenda"||name==="report"||name==="preview";
+  const wasDeep=_lastView==="business"||_lastView==="agenda"||_lastView==="report"||_lastView==="preview";
+  if(deep&&!wasDeep){try{history.pushState({sc:1},"");}catch(e){}}
+  _lastView=name;window.scrollTo(0,0);}
 $("#tabs").addEventListener("click",e=>{const t=e.target.closest(".tab");if(!t)return;const v=t.dataset.view;
   if(v==="agendas"){renderAgendasList();showView("agendas");}
   else if(v==="reports"){renderReportsList();showView("reports");}
@@ -667,7 +672,7 @@ function renderBizDetails(root,existing){
   const c6=card("Notes",`<path d="M5 4h11l3 3v13H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>`);c6.appendChild(ta("f-notes",p.notes,3));root.appendChild(c6);
 
   const bar=el("div",{class:"action-bar"});
-  bar.appendChild(el("button",{class:"btn btn-ghost",onclick:()=>{collectBiz(p);renderBusinesses();showView("prospects");}},"Close"));
+  bar.appendChild(el("button",{class:"btn btn-ghost",onclick:()=>{autosaveBiz();renderBusinesses();showView("prospects");}},"Close"));
   if(existing)bar.appendChild(el("button",{class:"btn btn-danger-ghost",onclick:()=>deleteBiz(p.id)},"Delete"));
   bar.appendChild(el("div",{class:"spacer"}));
   bar.appendChild(el("button",{class:"btn btn-primary",onclick:()=>{collectBiz(p);saveBizRecord(p,true);}},"Save"));
@@ -1057,6 +1062,26 @@ async function exportProspectSheet(){
   }
 }
 $("#btnSheet").addEventListener("click",exportProspectSheet);
+
+/* ===== autosave + back-button protection ===== */
+let bizAutoTimer=null,docAutoTimer=null;
+function upsertQuiet(key,arr){Store.set(key,JSON.stringify(arr));flashSaved();scheduleSync();}
+function autosaveBiz(){if(bizTab!=="details"||!curBiz)return;collectBiz(curBiz);if(!(curBiz.name||"").trim())return;
+  const arr=loadBiz();const i=arr.findIndex(x=>x.id===curBiz.id);const s=JSON.parse(JSON.stringify(curBiz));if(i>=0)arr[i]=s;else arr.unshift(s);upsertQuiet(BKEY,arr);}
+function autosaveAgenda(){if(!curAgenda||!loadAgendas().some(x=>x.id===curAgenda.id))return;collectAgenda(curAgenda);
+  const arr=loadAgendas();const i=arr.findIndex(x=>x.id===curAgenda.id);if(i>=0){arr[i]=JSON.parse(JSON.stringify(curAgenda));upsertQuiet(AKEY,arr);}}
+function autosaveReport(){if(!curReport||!loadReports().some(x=>x.id===curReport.id))return;collectReport(curReport);
+  const arr=loadReports();const i=arr.findIndex(x=>x.id===curReport.id);if(i>=0){arr[i]=JSON.parse(JSON.stringify(curReport));upsertQuiet(RKEY,arr);}}
+document.addEventListener("input",e=>{const t=e.target;if(!t||!t.closest)return;
+  if(t.closest("#view-business")){clearTimeout(bizAutoTimer);bizAutoTimer=setTimeout(autosaveBiz,700);}
+  else if(t.closest("#view-agenda")){clearTimeout(docAutoTimer);docAutoTimer=setTimeout(autosaveAgenda,700);}
+  else if(t.closest("#view-report")){clearTimeout(docAutoTimer);docAutoTimer=setTimeout(autosaveReport,700);}});
+window.addEventListener("popstate",()=>{const active=(document.querySelector(".view.active")||{}).id||"";const name=active.replace("view-","");
+  if(name==="business"||name==="agenda"||name==="report"||name==="preview"){try{history.pushState({sc:1},"");}catch(e){}
+    if(name==="business"){autosaveBiz();renderBusinesses();showView("prospects");}
+    else if(name==="agenda"){autosaveAgenda();if(docReturn==="business"){bizTab="agendas";renderBusiness();showView("business");}else{renderAgendasList();showView("agendas");}}
+    else if(name==="report"){autosaveReport();if(docReturn==="business"){bizTab="reports";renderBusiness();showView("business");}else{renderReportsList();showView("reports");}}
+    else if(name==="preview"){const b=$("#prevBack");if(b)b.click();}}});
 
 /* ===== keyboard-aware action bar + init ===== */
 ["view-business","view-agenda","view-report"].forEach(vid=>{const fv=document.getElementById(vid);const bar=()=>fv.querySelector(".action-bar");const isField=n=>n&&n.matches&&n.matches("input,textarea,select");
