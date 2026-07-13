@@ -68,7 +68,7 @@
   input[type=text],input[type=tel],input[type=email],input[type=url],input[type=number],input[type=date],input[type=time],textarea,select{
     width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:15px;font-family:var(--font);color:var(--ink);background:var(--surface-2);transition:border-color .12s,box-shadow .12s;}
   input:focus,textarea:focus,select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(52,87,213,.13);background:#fff;}
-  textarea{resize:vertical;min-height:64px;line-height:1.5;}
+  textarea{resize:vertical;min-height:84px;line-height:1.5;}
   .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .grid-3{display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:12px;}
   @media(max-width:560px){.grid-2,.grid-3{grid-template-columns:1fr;}}
@@ -669,7 +669,7 @@ function renderBizDetails(root,existing){
   c5.appendChild(el("button",{class:"add-row",onclick:()=>{collectBiz(p);p.visits.push({date:todayISO(),spokeWith:"",gift:false,giftItem:"",notes:""});renderBusiness();}},"+ Log a visit"));
   root.appendChild(c5);
 
-  const c6=card("Notes",`<path d="M5 4h11l3 3v13H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>`);c6.appendChild(ta("f-notes",p.notes,3));root.appendChild(c6);
+  const c6=card("Notes",`<path d="M5 4h11l3 3v13H5z"/><path d="M8 9h8M8 13h8M8 17h5"/>`);c6.appendChild(ta("f-notes",p.notes,6));root.appendChild(c6);
 
   const bar=el("div",{class:"action-bar"});
   bar.appendChild(el("button",{class:"btn btn-ghost",onclick:()=>{autosaveBiz();renderBusinesses();showView("prospects");}},"Close"));
@@ -721,7 +721,7 @@ function renderBizDocs(root,kind){
 function newAgenda(biz){docReturn=biz?"business":"agendas";const bid=biz?biz.id:"";
   curAgenda={id:uid(),businessId:bid,createdAt:Date.now(),updatedAt:Date.now(),
   educator:(LISTS.educators[0]||""),dateISO:"",startTime:"",endTime:"",
-  rows:[{period:"AM",time:"",desc:""}],aeItems:["Handouts for class","Products for demonstration"],partnerItems:["Training Room"],gifts:[],remTime:""};
+  rows:[{period:"AM",time:"",desc:""}],aeItems:["Handouts for class","Products for demonstration"],partnerItems:["Training Room"],gifts:[],remTime:"",notes:""};
   renderAgenda();showView("agenda");}
 function openAgenda(id,from){docReturn=from||"agendas";const a=loadAgendas().find(x=>x.id===id);if(!a)return;curAgenda=JSON.parse(JSON.stringify(a));renderAgenda();showView("agenda");}
 function renderAgenda(){
@@ -758,7 +758,9 @@ function renderAgenda(){
 
   const c4=card("Training gifts (optional)","5",true);c4.appendChild(simpleRepeater(d.gifts,"dl-gifts","e.g. Timeless Serum"));root.appendChild(c4);
 
-  const c5=card("Calendar reminder","6",true);
+  const cN=card("Notes","6",true);cN.appendChild(el("p",{class:"hint",style:"margin:0 0 8px;display:block;"},"Working notes from this training. These carry into the follow-up report for this spa so you don't have to retype them."));cN.appendChild(ta("a-notes",d.notes,7));root.appendChild(cN);
+
+  const c5=card("Calendar reminder","7",true);
   c5.appendChild(el("p",{class:"hint",style:"margin:0 0 11px;display:block;"},"Drops the training session into your phone's calendar (uses the date and start time above). Set a different reminder time if you like."));
   c5.appendChild(field("Reminder time (optional, defaults to start time)",inp("a-remtime","time",d.remTime)));
   c5.appendChild(el("button",{class:"btn btn-sage",onclick:()=>{collectAgenda(d);linkAgendaPartner(d);addAgendaToCalendar(d);}},"Add to calendar"));
@@ -786,7 +788,7 @@ function updateAgendaDateline(d){const n=$("#a-dateline");if(n)n.textContent=age
 function collectAgenda(d){const g=id=>{const n=$("#"+id);return n?n.value:undefined;};
   if(g("a-educator")!==undefined)d.educator=g("a-educator").trim();
   if(g("a-date")!==undefined)d.dateISO=g("a-date");if(g("a-start")!==undefined)d.startTime=g("a-start");if(g("a-end")!==undefined)d.endTime=g("a-end");
-  if(g("a-remtime")!==undefined)d.remTime=g("a-remtime");
+  if(g("a-remtime")!==undefined)d.remTime=g("a-remtime");if(g("a-notes")!==undefined)d.notes=g("a-notes");
   d.aeItems=d.aeItems.filter(x=>x.trim());d.partnerItems=d.partnerItems.filter(x=>x.trim());d.gifts=d.gifts.filter(x=>x.trim());d.rows=d.rows.filter(r=>r.time.trim()||r.desc.trim());d.updatedAt=Date.now();}
 function saveAgenda(d,showToast){rememberValue("educators",d.educator);d.rows.forEach(r=>rememberValue("agendaItems",r.desc));d.aeItems.forEach(v=>rememberValue("aeItems",v));d.partnerItems.forEach(v=>rememberValue("partnerItems",v));d.gifts.forEach(v=>rememberValue("gifts",v));
   const arr=loadAgendas();const i=arr.findIndex(x=>x.id===d.id);const stored=JSON.parse(JSON.stringify(d));if(i>=0)arr[i]=stored;else arr.unshift(stored);saveAgendas(arr);if(showToast)toast("Agenda saved");}
@@ -796,10 +798,11 @@ function addAgendaToCalendar(d){if(!d.dateISO){toast("Add a training date first"
   downloadICSEvent("Pevonia Training: "+bizName(d.businessId),d.dateISO,t,60,desc,b?b.address:"",d.id);}
 
 /* ===== REPORT editor ===== */
+function latestAgendaNotes(bid){if(!bid)return"";const list=loadAgendas().filter(a=>a.businessId===bid&&(a.notes||"").trim()).sort((a,b)=>(b.dateISO||"").localeCompare(a.dateISO||"")||b.updatedAt-a.updatedAt);return list.length?list[0].notes:"";}
 function newReport(biz){docReturn=biz?"business":"reports";const bid=biz?biz.id:"";
   curReport={id:uid(),businessId:bid,createdAt:Date.now(),updatedAt:Date.now(),
   educator:(LISTS.educators[0]||""),therapist:(biz?(biz.serviceProvider||biz.contact||""):""),greeting:(biz?(biz.contact?biz.contact.split(" ")[0]:(biz.owner?biz.owner.split(" ")[0]:"")):""),dateISO:"",
-  intro:"",overview:["",""],performance:[""],recommendations:[""],followUp:[""],nextDates:[""],closing:"",signoff:"",remDate:"",remTime:"",remNote:""};
+  intro:"",overview:["",""],performance:[""],recommendations:[""],followUp:[""],nextDates:[""],closing:"",signoff:"",remDate:"",remTime:"",remNote:"",notes:(biz?latestAgendaNotes(bid):"")};
   renderReport();showView("report");}
 function openReport(id,from){docReturn=from||"reports";const r=loadReports().find(x=>x.id===id);if(!r)return;curReport=JSON.parse(JSON.stringify(r));renderReport();showView("report");}
 function renderReport(){
@@ -812,7 +815,7 @@ function renderReport(){
 
   const c0=card("Spa partner","1",true);
   const partnerInput=listInp("r-partner","dl-biznames",(b&&b.name)||"","Type or pick a spa");
-  partnerInput.addEventListener("change",()=>{const nm=partnerInput.value.trim();if(!nm)return;const found=loadBiz().find(x=>(x.name||"").toLowerCase()===nm.toLowerCase());if(found){if(!$("#r-therapist").value)$("#r-therapist").value=found.serviceProvider||found.contact||"";if(!$("#r-greeting").value)$("#r-greeting").value=found.contact?found.contact.split(" ")[0]:(found.owner?found.owner.split(" ")[0]:"");}});
+  partnerInput.addEventListener("change",()=>{const nm=partnerInput.value.trim();if(!nm)return;const found=loadBiz().find(x=>(x.name||"").toLowerCase()===nm.toLowerCase());if(found){if(!$("#r-therapist").value)$("#r-therapist").value=found.serviceProvider||found.contact||"";if(!$("#r-greeting").value)$("#r-greeting").value=found.contact?found.contact.split(" ")[0]:(found.owner?found.owner.split(" ")[0]:"");if(!$("#r-notes").value){const an=latestAgendaNotes(found.id);if(an)$("#r-notes").value=an;}}});
   c0.appendChild(field("Which spa is this report for?",partnerInput));
   c0.appendChild(el("p",{class:"hint",style:"margin-top:2px;display:block;"},"Pick an existing spa or type a new name. It prints as the Spa Partner and links the report to that spa."));
   root.appendChild(c0);
@@ -830,7 +833,9 @@ function renderReport(){
   const c7=card("Next training dates","8",true);c7.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved option or type a new one."));c7.appendChild(simpleRepeater(d.nextDates,"dl-nextdates","Pick or type next training plans"));root.appendChild(c7);
   const c8=card("Closing","9",true);c8.appendChild(field("Closing paragraph",ta("r-closing",d.closing,3)));c8.appendChild(field("Sign-off name",listInp("r-signoff","dl-educators",d.signoff,"Defaults to educator")));root.appendChild(c8);
 
-  const c9=card("Calendar reminder","10",true);
+  const cN=card("Notes","10",true);cN.appendChild(el("p",{class:"hint",style:"margin:0 0 8px;display:block;"},"Carries over from this spa's training agenda notes. Edit freely. (These stay internal and do not print on the report.)"));cN.appendChild(ta("r-notes",d.notes,7));root.appendChild(cN);
+
+  const c9=card("Calendar reminder","11",true);
   c9.appendChild(el("p",{class:"hint",style:"margin:0 0 11px;display:block;"},"Set the follow-up call/visit reminder and drop it into your phone's calendar."));
   const rg=el("div",{class:"grid-2"});rg.appendChild(field("Follow-up date",inp("r-remdate","date",d.remDate)));rg.appendChild(field("Time",inp("r-remtime","time",d.remTime)));c9.appendChild(rg);
   c9.appendChild(field("Reminder note",inp("r-remnote","text",d.remNote,"e.g. Check on Brandi's progress")));
@@ -852,11 +857,12 @@ function collectReport(d){const g=id=>{const n=$("#"+id);return n?n.value:undefi
   if(g("r-date")!==undefined)d.dateISO=g("r-date");if(g("r-educator")!==undefined)d.educator=g("r-educator").trim();
   if(g("r-therapist")!==undefined)d.therapist=g("r-therapist").trim();if(g("r-greeting")!==undefined)d.greeting=g("r-greeting").trim();
   if(g("r-intro")!==undefined)d.intro=g("r-intro");if(g("r-closing")!==undefined)d.closing=g("r-closing");if(g("r-signoff")!==undefined)d.signoff=g("r-signoff").trim();
-  if(g("r-remdate")!==undefined)d.remDate=g("r-remdate");if(g("r-remtime")!==undefined)d.remTime=g("r-remtime");if(g("r-remnote")!==undefined)d.remNote=g("r-remnote").trim();
+  if(g("r-remdate")!==undefined)d.remDate=g("r-remdate");if(g("r-remtime")!==undefined)d.remTime=g("r-remtime");if(g("r-remnote")!==undefined)d.remNote=g("r-remnote").trim();if(g("r-notes")!==undefined)d.notes=g("r-notes");
   d.overview=d.overview.filter(x=>x.trim());d.performance=d.performance.filter(x=>x.trim());d.recommendations=d.recommendations.filter(x=>x.trim());d.followUp=d.followUp.filter(x=>x.trim());d.nextDates=d.nextDates.filter(x=>x.trim());d.updatedAt=Date.now();}
 function fillReportDefaults(d){
   if(!d.intro){const v="I wanted to thank you for the opportunity to hold training with {therapist}. We covered a lot in the time we had, and it was wonderful to see such engagement and enthusiasm. As discussed, please find below the follow-up from our training, along with the next steps for continued education and support to help her succeed.";$("#r-intro").value=v;d.intro=v;}
-  if(!d.closing){const v="I thoroughly enjoyed collaborating with you and look forward to continuing your education support with the brand and hearing about all your amazing results!";$("#r-closing").value=v;d.closing=v;}}
+  if(!d.closing){const v="I thoroughly enjoyed collaborating with you and look forward to continuing your education support with the brand and hearing about all your amazing results!";$("#r-closing").value=v;d.closing=v;}
+  if(!d.notes&&d.businessId){const an=latestAgendaNotes(d.businessId);if(an){const n=$("#r-notes");if(n)n.value=an;d.notes=an;}}}
 function saveReport(d,showToast){rememberValue("educators",d.educator);if(d.signoff)rememberValue("educators",d.signoff);rememberValue("therapists",d.therapist);d.overview.forEach(v=>rememberValue("overviewTopics",v));d.recommendations.forEach(v=>rememberValue("recommendations",v));d.nextDates.forEach(v=>rememberValue("nextDates",v));
   const arr=loadReports();const i=arr.findIndex(x=>x.id===d.id);const stored=JSON.parse(JSON.stringify(d));if(i>=0)arr[i]=stored;else arr.unshift(stored);saveReports(arr);if(showToast)toast("Report saved");}
 function materializeReport(d){const c=JSON.parse(JSON.stringify(d));c.type="report";c.partner=bizName(d.businessId);return c;}
