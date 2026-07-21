@@ -220,6 +220,7 @@
     @page{margin:14mm;}
   }
 @media (min-width:1100px){.topbar-inner{max-width:1180px;}.tabs{max-width:1180px;}main{max-width:1180px;}}
+.saved-pick{width:100%;margin-bottom:10px;font-weight:600;color:var(--royal,#2A4FD8);}
 </style>
 </head>
 <body>
@@ -521,6 +522,10 @@ function simpleRepeater(arr,listId,ph){const wrap=el("div",{class:"rep-list"});
       const del=el("button",{class:"icon-btn",title:"Remove",onclick:()=>{arr.splice(i,1);draw();}},"\u00D7");row.append(input,del);wrap.appendChild(row);});
     wrap.appendChild(el("button",{class:"add-row",onclick:()=>{arr.push("");draw();}},"+ Add"));}
   draw();return wrap;}
+function savedSelect(opts,onPick,placeholder){opts=Array.from(new Set((opts||[]).filter(Boolean)));if(!opts.length)return null;
+  const s=el("select",{class:"saved-pick"});s.appendChild(el("option",{value:""},placeholder||"\uFF0B Add saved\u2026"));
+  opts.forEach(o=>s.appendChild(el("option",{value:o},o)));
+  s.addEventListener("change",()=>{const v=s.value;s.value="";if(v)onPick(v);});return s;}
 
 /* ===== address / contact actions ===== */
 function chipBtn(label,iconPath,fn){return el("button",{class:"addr-chip",onclick:fn,html:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">${iconPath}</svg><span>${label}</span>`});}
@@ -742,6 +747,7 @@ function renderAgenda(){
 
   const c0=card("Spa partner","1",true);
   c0.appendChild(field("Which spa is this training for?",listInp("a-partner","dl-biznames",(b&&b.name)||"","Type or pick a spa")));
+  {const sp=savedSelect(loadBiz().map(x=>x.name),v=>{const n=$("#a-partner");if(n){n.value=v;n.dispatchEvent(new Event("change"));}},"\uFF0B Pick a saved spa\u2026");if(sp)c0.appendChild(sp);}
   c0.appendChild(el("p",{class:"hint",style:"margin-top:2px;display:block;"},"Pick an existing spa or type a new name. This name prints on the agenda and links it to that spa, so renaming the spa updates it everywhere."));
   root.appendChild(c0);
 
@@ -758,11 +764,11 @@ function renderAgenda(){
   root.appendChild(c2);
 
   const c3=card("Who supplies what","4",true);
-  c3.appendChild(el("div",{class:"field-label"},"Items supplied by educator"));c3.appendChild(simpleRepeater(d.aeItems,"dl-ae","Add an item"));
-  c3.appendChild(el("div",{class:"field-label",style:"margin-top:16px;"},"Items supplied by partner"));c3.appendChild(simpleRepeater(d.partnerItems,"dl-partneritems","Add an item"));
+  c3.appendChild(el("div",{class:"field-label"},"Items supplied by educator"));{const s=savedSelect(LISTS.aeItems,v=>{collectAgenda(d);d.aeItems.push(v);renderAgenda();});if(s)c3.appendChild(s);}c3.appendChild(simpleRepeater(d.aeItems,"dl-ae","Add an item"));
+  c3.appendChild(el("div",{class:"field-label",style:"margin-top:16px;"},"Items supplied by partner"));{const s=savedSelect(LISTS.partnerItems,v=>{collectAgenda(d);d.partnerItems.push(v);renderAgenda();});if(s)c3.appendChild(s);}c3.appendChild(simpleRepeater(d.partnerItems,"dl-partneritems","Add an item"));
   root.appendChild(c3);
 
-  const c4=card("Training gifts (optional)","5",true);c4.appendChild(simpleRepeater(d.gifts,"dl-gifts","e.g. Timeless Serum"));root.appendChild(c4);
+  const c4=card("Training gifts (optional)","5",true);{const s=savedSelect(LISTS.gifts,v=>{collectAgenda(d);d.gifts.push(v);renderAgenda();});if(s)c4.appendChild(s);}c4.appendChild(simpleRepeater(d.gifts,"dl-gifts","e.g. Timeless Serum"));root.appendChild(c4);
 
   const cN=card("Notes","6",true);cN.appendChild(el("p",{class:"hint",style:"margin:0 0 8px;display:block;"},"Working notes from this training. These carry into the follow-up report for this spa so you don't have to retype them."));cN.appendChild(ta("a-notes",d.notes,7));root.appendChild(cN);
 
@@ -823,6 +829,7 @@ function renderReport(){
   const partnerInput=listInp("r-partner","dl-biznames",(b&&b.name)||"","Type or pick a spa");
   partnerInput.addEventListener("change",()=>{const nm=partnerInput.value.trim();if(!nm)return;const found=loadBiz().find(x=>(x.name||"").toLowerCase()===nm.toLowerCase());if(found){if(!$("#r-therapist").value)$("#r-therapist").value=found.serviceProvider||found.contact||"";if(!$("#r-greeting").value)$("#r-greeting").value=found.contact?found.contact.split(" ")[0]:(found.owner?found.owner.split(" ")[0]:"");if(!$("#r-notes").value){const an=latestAgendaNotes(found.id);if(an)$("#r-notes").value=an;}}});
   c0.appendChild(field("Which spa is this report for?",partnerInput));
+  {const sp=savedSelect(loadBiz().map(x=>x.name),v=>{partnerInput.value=v;partnerInput.dispatchEvent(new Event("change"));},"\uFF0B Pick a saved spa\u2026");if(sp)c0.appendChild(sp);}
   c0.appendChild(el("p",{class:"hint",style:"margin-top:2px;display:block;"},"Pick an existing spa or type a new name. It prints as the Spa Partner and links the report to that spa."));
   root.appendChild(c0);
 
@@ -832,11 +839,11 @@ function renderReport(){
   root.appendChild(c1);
 
   const c2=card("Opening","3",true);c2.appendChild(field("Intro paragraph",ta("r-intro",d.intro,4)));root.appendChild(c2);
-  const c3=card("Training overview","4",true);c3.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick saved topics or type new."));c3.appendChild(simpleRepeater(d.overview,"dl-overview","e.g. Pevonia 101"));root.appendChild(c3);
+  const c3=card("Training overview","4",true);c3.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved topic or type new."));{const s=savedSelect(LISTS.overviewTopics,v=>{collectReport(d);d.overview.push(v);renderReport();});if(s)c3.appendChild(s);}c3.appendChild(simpleRepeater(d.overview,"dl-overview","e.g. Pevonia 101"));root.appendChild(c3);
   const c4=card("Therapist interaction & performance","5",true);c4.appendChild(simpleRepeater(d.performance,null,"How the trainee engaged"));root.appendChild(c4);
-  const c5=card("Recommendations","6",true);c5.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved recommendation or type a new one."));c5.appendChild(simpleRepeater(d.recommendations,"dl-recommendations","Pick or type a recommendation"));root.appendChild(c5);
+  const c5=card("Recommendations","6",true);c5.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved recommendation or type a new one."));{const s=savedSelect(LISTS.recommendations,v=>{collectReport(d);d.recommendations.push(v);renderReport();});if(s)c5.appendChild(s);}c5.appendChild(simpleRepeater(d.recommendations,"dl-recommendations","Pick or type a recommendation"));root.appendChild(c5);
   const c6=card("Training follow up","7",true);c6.appendChild(simpleRepeater(d.followUp,null,"How you'll check in"));root.appendChild(c6);
-  const c7=card("Next training dates","8",true);c7.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved option or type a new one."));c7.appendChild(simpleRepeater(d.nextDates,"dl-nextdates","Pick or type next training plans"));root.appendChild(c7);
+  const c7=card("Next training dates","8",true);c7.appendChild(el("p",{class:"hint",style:"margin:0 0 10px;display:block;"},"Pick a saved option or type a new one."));{const s=savedSelect(LISTS.nextDates,v=>{collectReport(d);d.nextDates.push(v);renderReport();});if(s)c7.appendChild(s);}c7.appendChild(simpleRepeater(d.nextDates,"dl-nextdates","Pick or type next training plans"));root.appendChild(c7);
   const c8=card("Closing","9",true);c8.appendChild(field("Closing paragraph",ta("r-closing",d.closing,3)));c8.appendChild(field("Sign-off name",listInp("r-signoff","dl-educators",d.signoff,"Defaults to educator")));root.appendChild(c8);
 
   const cN=card("Notes","10",true);cN.appendChild(el("p",{class:"hint",style:"margin:0 0 8px;display:block;"},"Carries over from this spa's training agenda notes. Edit freely. (These stay internal and do not print on the report.)"));cN.appendChild(ta("r-notes",d.notes,7));root.appendChild(cN);
